@@ -16,6 +16,8 @@ param(
     [ValidateSet("x64", "x86")]
     [string]$Arch = "x64",
     
+    [switch]$StaticRuntime,
+    [switch]$DynamicRuntime,
     [switch]$Clean,
     [switch]$Help
 )
@@ -62,6 +64,8 @@ Antigravity-Proxy 编译脚本
 参数:
     -Config <Release|Debug>  编译配置 (默认: Release)
     -Arch   <x64|x86>        目标架构 (默认: x64)
+    -StaticRuntime           使用静态运行库 (/MT) (默认启用)
+    -DynamicRuntime          使用动态运行库 (/MD)
     -Clean                   清理后重新编译
     -Help                    显示帮助信息
 
@@ -69,6 +73,7 @@ Antigravity-Proxy 编译脚本
     .\build.ps1                      # Release x64 编译
     .\build.ps1 -Config Debug        # Debug x64 编译
     .\build.ps1 -Arch x86            # Release x86 编译
+    .\build.ps1 -DynamicRuntime      # 使用动态运行库编译
     .\build.ps1 -Clean -Config Debug # 清理后 Debug 编译
 "@
 }
@@ -86,9 +91,16 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BuildDir = Join-Path $ScriptDir "build-$Arch"
 $OutputDir = Join-Path $ScriptDir "output"
 
+# 默认启用静态运行库，降低运行库缺失导致的启动失败风险
+$UseStaticRuntime = $true
+if ($DynamicRuntime) { $UseStaticRuntime = $false }
+elseif ($StaticRuntime) { $UseStaticRuntime = $true }
+$RuntimeLabel = if ($UseStaticRuntime) { "静态(/MT)" } else { "动态(/MD)" }
+
 Write-Header "Antigravity-Proxy 编译开始"
 Write-Host "  配置: $Config" -ForegroundColor White
 Write-Host "  架构: $Arch" -ForegroundColor White
+Write-Host "  运行库: $RuntimeLabel" -ForegroundColor White
 Write-Host "  构建目录: $BuildDir" -ForegroundColor White
 Write-Host ""
 
@@ -160,6 +172,11 @@ try {
         "-G", "Visual Studio 17 2022",
         "-A", $cmakeArch
     )
+    if ($UseStaticRuntime) {
+        $cmakeArgs += "-DSTATIC_RUNTIME=ON"
+    } else {
+        $cmakeArgs += "-DSTATIC_RUNTIME=OFF"
+    }
     
     $cmakeResult = & cmake @cmakeArgs 2>&1
     if ($LASTEXITCODE -ne 0) {

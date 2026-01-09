@@ -27,6 +27,43 @@ namespace Core {
     };
 
     class Config {
+    private:
+        // 判断路径是否为绝对路径（Windows 盘符或 UNC 路径）
+        static bool IsAbsolutePath(const std::string& path) {
+            if (path.size() >= 2 && std::isalpha(static_cast<unsigned char>(path[0])) && path[1] == ':') {
+                return true;
+            }
+            if (path.size() >= 2 &&
+                ((path[0] == '\\' && path[1] == '\\') || (path[0] == '/' && path[1] == '/'))) {
+                return true;
+            }
+            return false;
+        }
+
+        // 获取当前 DLL 所在目录（用于定位与 DLL 同目录的配置文件）
+        static std::string GetModuleDirectory() {
+            char modulePath[MAX_PATH] = {0};
+            HMODULE hModule = NULL;
+            if (!GetModuleHandleExA(
+                GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                reinterpret_cast<LPCSTR>(&GetModuleDirectory),
+                &hModule
+            )) {
+                return "";
+            }
+            DWORD len = GetModuleFileNameA(hModule, modulePath, MAX_PATH);
+            if (len == 0 || len >= MAX_PATH) {
+                return "";
+            }
+            for (int i = static_cast<int>(len) - 1; i >= 0; --i) {
+                if (modulePath[i] == '\\' || modulePath[i] == '/') {
+                    modulePath[i] = '\0';
+                    break;
+                }
+            }
+            return std::string(modulePath);
+        }
+
     public:
         ProxyConfig proxy;
         FakeIPConfig fakeIp;
@@ -65,10 +102,39 @@ namespace Core {
 
         bool Load(const std::string& path = "config.json") {
             try {
-                std::ifstream f(path);
+                // 优先从 DLL 所在目录读取配置，避免子进程工作目录不同导致相对路径失效
+                std::vector<std::string> candidates;
+                if (IsAbsolutePath(path)) {
+                    candidates.push_back(path);
+                } else {
+                    std::string dllDir = GetModuleDirectory();
+                    if (!dllDir.empty()) {
+                        candidates.push_back(dllDir + "\\" + path);
+                    }
+                    candidates.push_back(path);
+                }
+
+                std::ifstream f;
+                std::string resolvedPath;
+                for (const auto& candidate : candidates) {
+                    f.open(candidate);
+                    if (f.is_open()) {
+                        resolvedPath = candidate;
+                        break;
+                    }
+                    f.clear();
+                }
+
                 if (!f.is_open()) {
-                    Logger::Error("打开配置文件失败: " + path);
+                    if (IsAbsolutePath(path)) {
+                        Logger::Error("打开配置文件失败: " + path);
+                    } else {
+                        Logger::Error("打开配置文件失败: " + path + " (已尝试 DLL 目录与当前目录)");
+                    }
                     return false;
+                }
+                if (!resolvedPath.empty()) {
+                    Logger::Info("使用配置文件路径: " + resolvedPath);
                 }
                 nlohmann::json j = nlohmann::json::parse(f);
                 

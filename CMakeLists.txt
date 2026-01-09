@@ -31,8 +31,16 @@ project(antigravity-proxy LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+option(STATIC_RUNTIME "使用静态运行库(/MT)，减少运行库依赖" ON)
+
 if(MSVC)
     add_compile_options(/utf-8)
+    # 根据开关选择静态/动态运行库，减少运行库缺失导致的启动失败
+    if(STATIC_RUNTIME)
+        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    else()
+        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL$<$<CONFIG:Debug>:Debug>")
+    endif()
 endif()
 
 include(CMakePackageConfigHelpers)
